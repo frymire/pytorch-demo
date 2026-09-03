@@ -219,7 +219,6 @@ __marimo__/
 
 data/
 .idea/
-poetry.lock
 
 # Trained model weights
 *.pt
