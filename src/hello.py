@@ -1,8 +1,8 @@
-
 import torch
 
 from torch import nn, Tensor
-from torch.nn import Flatten, Sequential, Linear, ReLU
+from torch.nn import Flatten, Sequential, Linear, ReLU, CrossEntropyLoss
+from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.datasets import FashionMNIST
@@ -28,6 +28,55 @@ class NeuralNetwork(nn.Module):
         return logits
 
 
+def train(
+        data_set: FashionMNIST,
+        data_loader: DataLoader,
+        model: NeuralNetwork,
+        loss_fn: CrossEntropyLoss,
+        optimizer: Optimizer,
+        detected_device: str) -> None:
+
+    size: int = len(data_set)
+    model.train()
+
+    for batch, (X, y) in enumerate(data_loader):
+
+        X, y = X.to(detected_device), y.to(detected_device)
+
+        # Compute prediction error
+        prediction: Tensor = model(X)
+        loss = loss_fn(prediction, y)
+
+        # Run backpropagation
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+        if batch % 100 == 0:
+            loss, current = loss.item(), (batch + 1) * len(X)
+            print(f"loss: {loss:>7f} [{current:>5d} / {size:>5d}]")
+
+
+def test(data_loader: DataLoader, model: NeuralNetwork, loss_fn: CrossEntropyLoss, detected_device: str) -> None:
+
+    size: int = len(data_loader.dataset)
+    num_batches: int = len(data_loader)
+    model.eval()
+    test_loss, correct = 0, 0
+
+    with torch.no_grad():
+
+        for X, y in data_loader:
+            X, y = X.to(detected_device), y.to(detected_device)
+            prediction: Tensor = model(X)
+            test_loss += loss_fn(prediction, y).item()
+            correct += (prediction.argmax(1) == y).type(torch.float).sum().item()
+
+        test_loss /= num_batches
+        correct /= size
+        print(f"Test Error: \n  Accuracy: {(100*correct):>0.1f}%, Average Loss: {test_loss:>8f}\n")
+
+
 def main() -> None:
 
     training_data: FashionMNIST = datasets.FashionMNIST(
@@ -46,7 +95,7 @@ def main() -> None:
 
     BATCH_SIZE: int = 64
 
-    _training_data_loader: DataLoader = DataLoader(training_data, batch_size=BATCH_SIZE)
+    training_data_loader: DataLoader = DataLoader(training_data, batch_size=BATCH_SIZE)
     test_data_loader: DataLoader = DataLoader(test_data, batch_size=BATCH_SIZE)
 
     for X, y in test_data_loader:
@@ -61,6 +110,16 @@ def main() -> None:
 
     model: NeuralNetwork = NeuralNetwork().to(detected_device)
     print(model)
+
+    loss_fn: CrossEntropyLoss = CrossEntropyLoss()
+    optimizer: Optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+
+    NUM_EPOCHS: int = 5
+    for t in range(NUM_EPOCHS):
+        print(f"Epoch: {t + 1}\n-------------------------------------")
+        train(training_data, training_data_loader, model, loss_fn, optimizer, detected_device)
+        test(test_data_loader, model, loss_fn, detected_device)
+    print("Done!")
 
 
 if __name__ == "__main__":
