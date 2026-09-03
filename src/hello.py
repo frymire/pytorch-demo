@@ -2,6 +2,7 @@
 import torch
 
 from torch import nn
+from torch import device
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.datasets import FashionMNIST
@@ -35,8 +36,9 @@ def main() -> None:
         break
 
     print(torch.cuda.is_available())
-    device: str = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
-    print(f"Device: {device}")
+    accelerator: torch.device | None = torch.accelerator.current_accelerator()
+    detected_device: str = accelerator.type if accelerator is not None else "cpu"
+    print(f"Device: {detected_device}")
 
 
 if __name__ == "__main__":
