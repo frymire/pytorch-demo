@@ -10,16 +10,14 @@ to make the error smaller.
 from typing import Sized, cast
 
 import torch
-from torch import nn, Tensor
-from torch.nn import CrossEntropyLoss
+from torch import Tensor
+from torch.nn import CrossEntropyLoss, Module, Flatten, Sequential, Linear, ReLU
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision.datasets import FashionMNIST
 from torchvision.transforms import v2
 
-# Hyperparameters. These are the numbers you choose, not the ones the model
-# learns.
 LEARNING_RATE: float = 1e-3
 BATCH_SIZE: int = 64
 EPOCHS: int = 10
@@ -29,27 +27,25 @@ def heading(title: str) -> None:
     print(f"\n{title}\n{'-' * len(title)}")
 
 
-class NeuralNetwork(nn.Module):
+class NeuralNetwork(Module):
 
     def __init__(self) -> None:
         super().__init__()
-        self.flatten: nn.Flatten = nn.Flatten()
-        self.linear_relu_stack: nn.Sequential = nn.Sequential(
-            nn.Linear(28 * 28, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 10),
+        self.flatten: Flatten = Flatten()
+        self.layers: Sequential = Sequential(
+            Linear(28 * 28, 512),
+            ReLU(),
+            Linear(512, 512),
+            ReLU(),
+            Linear(512, 10),
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.flatten(x)
-        logits: Tensor = self.linear_relu_stack(x)
-        return logits
+        return self.layers(self.flatten(x))  # logits
 
 
-def train_loop(
-        dataloader: DataLoader,
+def run_training_loop(
+        data_loader: DataLoader,
         model: NeuralNetwork,
         loss_fn: CrossEntropyLoss,
         optimizer: Optimizer) -> None:
@@ -57,16 +53,15 @@ def train_loop(
 
     # DataLoader.dataset is declared as Dataset, which has no length. The
     # real dataset here does have one, so tell the type checker.
-    size: int = len(cast(Sized, dataloader.dataset))
+    size: int = len(cast(Sized, data_loader.dataset))
 
-    # train() turns on training behaviour, such as dropout.
-    model.train()
+    model.train()  # turns on training behavior, such as dropout
 
-    for batch, (X, y) in enumerate(dataloader):
+    for batch, (X, y) in enumerate(data_loader):
 
         # Guess, then measure how wrong the guess was.
-        pred: Tensor = model(X)
-        loss: Tensor = loss_fn(pred, y)
+        prediction: Tensor = model(X)
+        loss: Tensor = loss_fn(prediction, y)
 
         # Work out the blame, apply the fix, then clear the blame.
         loss.backward()
@@ -79,70 +74,52 @@ def train_loop(
             print(f"loss: {loss_value:>7f}  [{current:>5d}/{size:>5d}]")
 
 
-def test_loop(
-        dataloader: DataLoader,
-        model: NeuralNetwork,
-        loss_fn: CrossEntropyLoss) -> None:
+def run_test_loop(data_loader: DataLoader, model: NeuralNetwork, loss_fn: CrossEntropyLoss) -> None:
     """Score the model on data it never trained on."""
 
-    # eval() turns off training behaviour.
-    model.eval()
+    model.eval()  # turns off training behavior
 
-    size: int = len(cast(Sized, dataloader.dataset))
-    num_batches: int = len(dataloader)
-    test_loss: float = 0.0
+    size: int = len(cast(Sized, data_loader.dataset))
+    num_batches: int = len(data_loader)
+    loss: float = 0.0
     correct: float = 0.0
 
-    # no_grad stops autograd from tracking. Testing changes no weights.
-    with torch.no_grad():
-        for X, y in dataloader:
-            pred: Tensor = model(X)
-            test_loss += loss_fn(pred, y).item()
-            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+    with torch.no_grad():  # no_grad stops autograd from tracking. Testing changes no weights.
+        for X, y in data_loader:
+            prediction: Tensor = model(X)
+            loss += loss_fn(prediction, y).item()
+            correct += (prediction.argmax(1) == y).type(torch.float).sum().item()
 
-    test_loss /= num_batches
+    loss /= num_batches
     correct /= size
-    print(f"Test Error: \n Accuracy: {(100 * correct):>0.1f}%, "
-          f"Avg loss: {test_loss:>8f} \n")
+    print(f"Test Error: \n Accuracy: {(100 * correct):>0.1f}%, Avg loss: {loss:>8f} \n")
 
 
 def main() -> None:
 
     heading("Prerequisite Code")
 
-    transform: v2.Compose = v2.Compose(
-        [v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
+    transform: v2.Compose = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
+    training_data: FashionMNIST = datasets.FashionMNIST(root="data", train=True, download=True, transform=transform)
+    test_data: FashionMNIST = datasets.FashionMNIST(root="data", train=False, download=True, transform=transform)
 
-    training_data: FashionMNIST = datasets.FashionMNIST(
-        root="data", train=True, download=True, transform=transform)
-
-    test_data: FashionMNIST = datasets.FashionMNIST(
-        root="data", train=False, download=True, transform=transform)
-
-    train_dataloader: DataLoader = DataLoader(training_data, batch_size=BATCH_SIZE)
-    test_dataloader: DataLoader = DataLoader(test_data, batch_size=BATCH_SIZE)
+    training_data_loader: DataLoader = DataLoader(training_data, batch_size=BATCH_SIZE)
+    test_data_loader: DataLoader = DataLoader(test_data, batch_size=BATCH_SIZE)
 
     model: NeuralNetwork = NeuralNetwork()
     print(model)
 
     heading("Loss Function and Optimizer")
-
-    # CrossEntropyLoss scores how far the guessed class scores are from the
-    # right answer.
-    loss_fn: CrossEntropyLoss = nn.CrossEntropyLoss()
-
-    # SGD is the rule that changes the weights: subtract the gradient times
-    # the learning rate.
-    optimizer: Optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
+    loss_fn: CrossEntropyLoss = CrossEntropyLoss()
+    optimizer: Optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)  # stochastic gradient descent
     print(f"Loss function: {loss_fn}")
     print(f"Optimizer: {optimizer}")
 
-    heading("Full Implementation")
-
+    heading("Training")
     for t in range(EPOCHS):
         print(f"Epoch {t + 1}\n-------------------------------")
-        train_loop(train_dataloader, model, loss_fn, optimizer)
-        test_loop(test_dataloader, model, loss_fn)
+        run_training_loop(training_data_loader, model, loss_fn, optimizer)
+        run_test_loop(test_data_loader, model, loss_fn)
     print("Done!")
 
 
