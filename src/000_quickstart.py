@@ -97,9 +97,9 @@ class NeuralNetwork(Module):
             loss: Tensor = self.loss(prediction, y)
 
             # Run backpropagation
-            loss.backward()
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+            loss.backward()  # compute gradients
+            self.optimizer.step()  # update weights based on the computed gradients
+            self.optimizer.zero_grad()  # reset gradients to zero, since backward() *accumulates* with each call
 
             if batch % 100 == 0:
                 num_complete: int = (batch + 1) * len(X)
