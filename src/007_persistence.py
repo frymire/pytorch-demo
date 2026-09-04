@@ -1,7 +1,6 @@
-"""A demo of how to save and load a model.
-
-The code follows the official tutorial:
-https://docs.pytorch.org/tutorials/beginner/basics/saveloadrun_tutorial.html
+"""
+A demo of how to save and load a model.
+The code follows the official tutorial: https://docs.pytorch.org/tutorials/beginner/basics/saveloadrun_tutorial.html
 
 WARNING: the first run downloads the trained VGG16 weights, about 528 MB.
 PyTorch keeps them in its cache, so later runs are fast.
@@ -25,12 +24,10 @@ def save_and_load_weights(weights_file: str) -> None:
 
     heading("Saving and Loading Model Weights")
 
-    # VGG16 is a large image model. IMAGENET1K_V1 asks for weights that are
-    # already trained on the ImageNet data.
+    # VGG16 is a large image model. IMAGENET1K_V1 asks for weights that are already trained on the ImageNet data.
     model: Module = models.vgg16(weights="IMAGENET1K_V1")
 
-    # A state_dict is a plain dictionary of every learned tensor, keyed by
-    # layer name. Save this, not the model object.
+    # A state_dict is a plain dictionary of every learned tensor, keyed by layer name. Save this, not the model object.
     state_dict: Dict[str, Any] = model.state_dict()
     print(f"Entries in the state_dict: {len(state_dict)}")
 
@@ -38,8 +35,7 @@ def save_and_load_weights(weights_file: str) -> None:
     size_mb: float = os.path.getsize(weights_file) / (1024 * 1024)
     print(f"Saved {weights_file} ({size_mb:.1f} MB)")
 
-    # Build the same shape of model, then pour the weights into it. Without
-    # weights= the model starts untrained.
+    # Build the same shape of model, then pour the weights into it. Without weights= the model starts untrained.
     reloaded: Module = models.vgg16()
     reloaded.load_state_dict(torch.load(weights_file, weights_only=True))
 
@@ -62,8 +58,7 @@ def save_and_load_whole_model(model_file: str) -> None:
 
     model: Module = models.vgg16()
 
-    # This saves the object, not only the weights. You then need no class
-    # definition to load it back.
+    # This saves the object, not only the weights. You then need no class definition to load it back.
     torch.save(model, model_file)
     size_mb: float = os.path.getsize(model_file) / (1024 * 1024)
     print(f"Saved {model_file} ({size_mb:.1f} MB)")
@@ -76,14 +71,9 @@ def save_and_load_whole_model(model_file: str) -> None:
 
 def main() -> None:
 
-    # Write into a temporary folder, so the demo leaves no large files in
-    # the project. The tutorial writes them into the working directory.
     with tempfile.TemporaryDirectory() as work_dir:
-
-        # The tutorial uses the .pth suffix. Prefer .pt in your own code:
-        # Python already uses .pth for path configuration files.
-        save_and_load_weights(os.path.join(work_dir, "model_weights.pth"))
-        save_and_load_whole_model(os.path.join(work_dir, "model.pth"))
+        save_and_load_weights(os.path.join(work_dir, "model_weights.pt"))
+        save_and_load_whole_model(os.path.join(work_dir, "model.pt"))
 
     heading("Which one to use")
     print("Save the state_dict. It survives changes to your code.")

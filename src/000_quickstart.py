@@ -106,7 +106,7 @@ class NeuralNetwork(Module):
                 print(f"loss: {loss.item():>7f} [{num_complete:>5d} / {size:>5d}]")
 
     def predict(self, test_data: FashionMNIST):
-        self.eval()
+        self.eval()  # set the dropout and batch normalization layers to evaluation mode for consistent outputs
         x, y = test_data[0][0], test_data[0][1]
         with torch.no_grad():
             x = x.to(self.device)
