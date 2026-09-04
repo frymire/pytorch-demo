@@ -69,12 +69,12 @@ def operations_on_tensors(tensor: Tensor) -> None:
     print(f"Device tensor is stored on: {tensor.device}")
 
     heading("Standard numpy-like indexing and slicing")
-    tensor = torch.ones(4, 4)
+    tensor = torch.rand(4, 4)
+    print(tensor)
     print(f"First row: {tensor[0]}")
     print(f"First column: {tensor[:, 0]}")
     print(f"Last column: {tensor[..., -1]}")
     tensor[:, 1] = 0
-    print(tensor)
 
     heading("Joining tensors")
     t1: Tensor = torch.cat([tensor, tensor, tensor], dim=1)
