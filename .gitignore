@@ -223,3 +223,6 @@ data/
 # Trained model weights
 *.pt
 *.pth
+
+# TensorBoard event files
+runs/
