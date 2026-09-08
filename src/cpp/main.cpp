@@ -155,8 +155,7 @@ int main(int argc, char** argv) {
         std::cout << "\nModel      : " << model_path << '\n';
         std::cout << "Input name : " << input_names[0] << '\n';
         std::cout << "Output name: " << output_names[0] << "\n\n";
-        std::cout << "Predicted: \"" << CLASSES[best] << "\", Actual: \""
-                  << CLASSES[actual] << "\"\n";
+        std::cout << "Predicted: \"" << CLASSES[best] << "\", Actual: \"" << CLASSES[actual] << "\"\n";
         return best == actual ? 0 : 1;
 
     } catch (const std::exception& error) {
