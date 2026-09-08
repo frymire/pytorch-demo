@@ -1,17 +1,21 @@
 // Runs the exported FashionMNIST model from C++.
 //
-// The program reads model.onnx, reads one image from the raw FashionMNIST
-// test files, and prints the class the model predicts. It uses ONNX Runtime.
-// It needs no PyTorch and no Python.
+// The program reads model.onnx, reads one image from the FashionMNIST test
+// files, and prints the class the model predicts. It uses ONNX Runtime and
+// zlib. It needs no PyTorch and no Python.
 //
-// Usage: onnx_demo [model.onnx] [raw data directory] [image index]
+// CMake downloads the test data, so the program needs no other setup.
+// The data files stay gzip compressed, and zlib reads them in place.
+//
+// Usage: onnx_demo [model.onnx] [data directory] [image index]
 
 #include <onnxruntime_cxx_api.h>
+#include <zlib.h>
 
 #include <array>
 #include <cstdint>
-#include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -26,11 +30,31 @@ constexpr int IMAGE_WIDTH = 28;
 constexpr int IMAGE_HEIGHT = 28;
 constexpr int PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT;
 
+// Close a gzip file even when an error throws.
+class GzipFile {
+public:
+    explicit GzipFile(const std::string& path) : file_(gzopen(path.c_str(), "rb")) {
+        if (file_ == nullptr) throw std::runtime_error("Cannot open " + path);
+    }
+    ~GzipFile() { if (file_ != nullptr) gzclose(file_); }
+    GzipFile(const GzipFile&) = delete;
+    GzipFile& operator=(const GzipFile&) = delete;
+    gzFile get() const { return file_; }
+
+private:
+    gzFile file_;
+};
+
+void read_exactly(gzFile file, void* target, int count) {
+    if (gzread(file, target, unsigned(count)) != count)
+        throw std::runtime_error("The data file ended too early.");
+}
+
 // The IDX file format stores its header numbers most significant byte first.
 // Intel processors store them the other way round, so swap the order.
-uint32_t read_big_endian(std::ifstream& file) {
+uint32_t read_big_endian(gzFile file) {
     unsigned char bytes[4];
-    file.read(reinterpret_cast<char*>(bytes), 4);
+    read_exactly(file, bytes, 4);
     return (uint32_t(bytes[0]) << 24) | (uint32_t(bytes[1]) << 16) |
            (uint32_t(bytes[2]) << 8) | uint32_t(bytes[3]);
 }
@@ -38,19 +62,18 @@ uint32_t read_big_endian(std::ifstream& file) {
 // Read one 28x28 image and scale each pixel from 0-255 into 0.0-1.0. This
 // matches what v2.ToDtype(torch.float32, scale=True) does in Python.
 std::vector<float> read_image(const std::string& path, int index) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) throw std::runtime_error("Cannot open " + path);
+    GzipFile file(path);
 
-    read_big_endian(file);                       // magic number
-    const uint32_t count = read_big_endian(file);
-    read_big_endian(file);                       // rows
-    read_big_endian(file);                       // columns
+    read_big_endian(file.get());                        // magic number
+    const uint32_t count = read_big_endian(file.get());
+    read_big_endian(file.get());                        // rows
+    read_big_endian(file.get());                        // columns
     if (index < 0 || uint32_t(index) >= count)
-        throw std::runtime_error("Image index is out of range.");
+        throw std::runtime_error("The image index is out of range.");
 
-    file.seekg(std::streamoff(index) * PIXELS, std::ios::cur);
+    gzseek(file.get(), z_off_t(index) * PIXELS, SEEK_CUR);
     std::vector<unsigned char> raw(PIXELS);
-    file.read(reinterpret_cast<char*>(raw.data()), PIXELS);
+    read_exactly(file.get(), raw.data(), PIXELS);
 
     std::vector<float> pixels(PIXELS);
     for (int i = 0; i < PIXELS; ++i) pixels[i] = float(raw[i]) / 255.0f;
@@ -58,14 +81,13 @@ std::vector<float> read_image(const std::string& path, int index) {
 }
 
 int read_label(const std::string& path, int index) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) throw std::runtime_error("Cannot open " + path);
+    GzipFile file(path);
 
-    read_big_endian(file);                       // magic number
-    read_big_endian(file);                       // count
-    file.seekg(index, std::ios::cur);
+    read_big_endian(file.get());                        // magic number
+    read_big_endian(file.get());                        // count
+    gzseek(file.get(), index, SEEK_CUR);
     unsigned char label = 0;
-    file.read(reinterpret_cast<char*>(&label), 1);
+    read_exactly(file.get(), &label, 1);
     return int(label);
 }
 
@@ -89,13 +111,13 @@ std::wstring widen(const std::string& text) {
 
 int main(int argc, char** argv) {
     try {
-        const std::string model_path = argc > 1 ? argv[1] : "model.onnx";
-        const std::string data_dir = argc > 2 ? argv[2] : "data/FashionMNIST/raw";
+        const std::string model_path = argc > 1 ? argv[1] : DEFAULT_MODEL_PATH;
+        const std::string data_dir = argc > 2 ? argv[2] : DATA_DIRECTORY;
         const int index = argc > 3 ? std::stoi(argv[3]) : 0;
 
         const std::vector<float> pixels =
-            read_image(data_dir + "/t10k-images-idx3-ubyte", index);
-        const int actual = read_label(data_dir + "/t10k-labels-idx1-ubyte", index);
+            read_image(data_dir + "/t10k-images-idx3-ubyte.gz", index);
+        const int actual = read_label(data_dir + "/t10k-labels-idx1-ubyte.gz", index);
 
         print_image(pixels);
 
@@ -130,7 +152,8 @@ int main(int argc, char** argv) {
         for (int i = 1; i < 10; ++i)
             if (logits[i] > logits[best]) best = i;
 
-        std::cout << "\nInput name : " << input_names[0] << '\n';
+        std::cout << "\nModel      : " << model_path << '\n';
+        std::cout << "Input name : " << input_names[0] << '\n';
         std::cout << "Output name: " << output_names[0] << "\n\n";
         std::cout << "Predicted: \"" << CLASSES[best] << "\", Actual: \""
                   << CLASSES[actual] << "\"\n";

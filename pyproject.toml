@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-onnx = ["onnx==1.22.0", "onnxscript==0.7.1"]
+onnx = ["onnx==1.22.0", "onnxscript==0.7.1", "onnxruntime==1.29.0"]
 
 [tool.poetry]
 # Dependency management only. This repo is not an installable package.

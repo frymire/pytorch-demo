@@ -1,7 +1,10 @@
 import os
 from typing import List
 
+import numpy as np
+import onnxruntime
 import torch
+from numpy import ndarray
 from torch import Tensor
 from torch.nn import Flatten, Sequential, Linear, ReLU, CrossEntropyLoss, Module
 from torch.optim import Optimizer
@@ -70,7 +73,7 @@ class NeuralNetwork(Module):
         the model with no PyTorch and no Python.
         """
 
-        # eval() switches off training behaviour before the export.
+        # eval() switches off training behavior before the export.
         self.eval()
 
         # The exporter runs the model once to record the graph, so it needs
@@ -147,6 +150,61 @@ class NeuralNetwork(Module):
             predicted, actual = NeuralNetwork.CLASSES[pred[0].argmax(0)], NeuralNetwork.CLASSES[y]
             print(f'Predicted: "{predicted}", Actual: "{actual}"')
 
+    @staticmethod
+    def predict_onnx(filepath: str, test_data: FashionMNIST) -> None:
+        """Predict with the ONNX file, the same way predict() uses the .pt file.
+
+        An InferenceSession is the ONNX Runtime object that holds a loaded
+        model. It takes numpy arrays, not tensors, and it runs on the CPU
+        here, so the answer does not depend on the graphics card.
+        """
+
+        session: onnxruntime.InferenceSession = onnxruntime.InferenceSession(
+            filepath, providers=["CPUExecutionProvider"])
+
+        x, y = test_data[0][0], test_data[0][1]
+
+        # The model wants [batch, channel, height, width], so add the batch.
+        image: ndarray = x.unsqueeze(0).numpy()
+        logits: ndarray = session.run(None, {"image": image})[0]
+
+        predicted = NeuralNetwork.CLASSES[int(logits[0].argmax())]
+        actual = NeuralNetwork.CLASSES[y]
+        print(f'Predicted: "{predicted}", Actual: "{actual}"')
+
+    def compare_with_onnx(self, filepath: str, test_data: FashionMNIST) -> None:
+        """Check the ONNX file and the PyTorch model pick the same classes."""
+
+        self.eval()
+
+        session: onnxruntime.InferenceSession = onnxruntime.InferenceSession(
+            filepath, providers=["CPUExecutionProvider"])
+
+        # Run the whole test set through both. The export marked dimension 0
+        # as dynamic, so one call takes all 10000 images.
+        count: int = len(test_data)
+        images: Tensor = torch.stack([test_data[i][0] for i in range(count)])
+
+        with torch.no_grad():
+            torch_logits: ndarray = self(images.to(self.device)).cpu().numpy()
+
+        onnx_logits: ndarray = session.run(None, {"image": images.numpy()})[0]
+
+        torch_classes: ndarray = torch_logits.argmax(axis=1)
+        onnx_classes: ndarray = onnx_logits.argmax(axis=1)
+        matches: int = int((torch_classes == onnx_classes).sum())
+
+        # The two runtimes add the numbers in a different order, so the raw
+        # scores differ by a tiny amount. The chosen class must still match.
+        largest_gap: float = float(np.abs(torch_logits - onnx_logits).max())
+
+        print(f"Predictions that match: {matches} of {count}")
+        print(f"Largest difference in the raw scores: {largest_gap:.3e}")
+
+        if matches != count:
+            raise RuntimeError("The ONNX model and the PyTorch model disagree.")
+        print("The ONNX model and the PyTorch model agree on every image.")
+
     def test(self, data_loader: DataLoader) -> None:
 
         size: int = len(data_loader.dataset)
@@ -189,6 +247,9 @@ def main() -> None:
 
     reloaded_model: NeuralNetwork = NeuralNetwork.from_file(FILEPATH)
     reloaded_model.predict(test_data)
+
+    NeuralNetwork.predict_onnx(ONNX_FILEPATH, test_data)
+    reloaded_model.compare_with_onnx(ONNX_FILEPATH, test_data)
 
 
 if __name__ == "__main__":
