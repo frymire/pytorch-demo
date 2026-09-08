@@ -28,20 +28,20 @@ The data files stay gzip compressed. zlib reads them in place.
 
 Run these from the project root.
 
-    cmake -S src/cpp -B src/cpp/build -A x64
-    cmake --build src/cpp/build --config Release
+    cmake -S src/onnx_inference_cpp -B src/onnx_inference_cpp/build -A x64
+    cmake --build src/onnx_inference_cpp/build --config Release
 
 ## Run
 
 The program has built-in default paths, so it runs with no arguments from
 any working directory.
 
-    src\cpp\build\Release\onnx_demo.exe
+    src\onnx_inference_cpp\build\Release\onnx_demo.exe
 
 To pick another image, give all three arguments. The last one is the image
 index, from 0 to 9999.
 
-    src\cpp\build\Release\onnx_demo.exe model.onnx src/cpp/build/data 42
+    src\onnx_inference_cpp\build\Release\onnx_demo.exe model.onnx src/onnx_inference_cpp/build/data 42
 
 The program returns 0 when the prediction is correct, and 1 when it is wrong.
 
