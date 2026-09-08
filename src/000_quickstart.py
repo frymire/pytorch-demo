@@ -1,3 +1,4 @@
+import os
 from typing import List
 
 import torch
@@ -60,6 +61,38 @@ class NeuralNetwork(Module):
         model: NeuralNetwork = NeuralNetwork()
         model.load_state_dict(torch.load(filepath, weights_only=True, map_location=model.device))
         return model
+
+    def export_onnx(self, filepath: str) -> None:
+        """Write the model as ONNX, so a runtime outside Python can run it.
+
+        ONNX is an open file format for a trained model. It holds the graph
+        of operations and the weights, so a C++ or a browser runtime can run
+        the model with no PyTorch and no Python.
+        """
+
+        # eval() switches off training behaviour before the export.
+        self.eval()
+
+        # The exporter runs the model once to record the graph, so it needs
+        # an example input of the right shape and dtype.
+        example: Tensor = torch.zeros(1, 1, 28, 28, device=self.device)
+
+        # dynamic_shapes marks dimension 0 of the input as free, so the file
+        # accepts any batch size, not only the batch size of the example.
+        # external_data=False keeps the weights inside the one file.
+        # verbose=False stops a Unicode print that fails on a cp1252 console.
+        torch.onnx.export(
+            self,
+            (example,),
+            filepath,
+            input_names=["image"],
+            output_names=["logits"],
+            dynamic_shapes={"x": {0: torch.export.Dim("batch")}},
+            external_data=False,
+            verbose=False)
+
+        size_mb: float = os.path.getsize(filepath) / (1024 * 1024)
+        print(f"Exported {filepath} ({size_mb:.1f} MB)")
 
     def forward(self, x: Tensor) -> Tensor:
         return self.layers(self.flatten(x))  # logits
@@ -150,6 +183,10 @@ def main() -> None:
 
     FILEPATH: str = "model.pt"
     torch.save(model.state_dict(), FILEPATH)
+
+    ONNX_FILEPATH: str = "model.onnx"
+    model.export_onnx(ONNX_FILEPATH)
+
     reloaded_model: NeuralNetwork = NeuralNetwork.from_file(FILEPATH)
     reloaded_model.predict(test_data)
 

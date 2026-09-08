@@ -226,3 +226,6 @@ data/
 
 # TensorBoard event files
 runs/
+
+# ONNX export
+*.onnx.data
