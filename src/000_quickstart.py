@@ -9,7 +9,6 @@ from torch import Tensor
 from torch.nn import Flatten, Sequential, Linear, ReLU, CrossEntropyLoss, Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from torchvision import datasets
 from torchvision.datasets import FashionMNIST
 from torchvision.transforms import v2
 
@@ -59,15 +58,8 @@ class NeuralNetwork(Module):
         return next(self.parameters()).device
 
     @staticmethod
-    def from_file(filepath: str, onnx: bool = False) -> 'NeuralNetwork':
-        """Reload a trained model from a file.
-
-        Set onnx to True for a .onnx file. You then get an OnnxNeuralNetwork,
-        which runs the ONNX file but answers every method the same way.
-        """
-        if onnx:
-            return OnnxNeuralNetwork(filepath)
-
+    def from_file(filepath: str) -> 'NeuralNetwork':
+        """Reload a trained model from a .pt file."""
         model: NeuralNetwork = NeuralNetwork()
         model.load_state_dict(torch.load(filepath, weights_only=True, map_location=model.device))
         return model
@@ -99,7 +91,8 @@ class NeuralNetwork(Module):
             output_names=["logits"],
             dynamic_shapes={"x": {0: torch.export.Dim("batch")}},
             external_data=False,
-            verbose=False)
+            verbose=False
+        )
 
         size_mb: float = os.path.getsize(filepath) / (1024 * 1024)
         print(f"Exported {filepath} ({size_mb:.1f} MB)")
@@ -186,51 +179,48 @@ class NeuralNetwork(Module):
 class OnnxNeuralNetwork(NeuralNetwork):
     """A NeuralNetwork that runs an ONNX file instead of its own weights.
 
-    Only forward changes. Every other method, such as predict and test, is
-    inherited and works without a change.
+    Only forward changes. Every other method, such as predict and test, is inherited and works without a change.
     """
 
     def __init__(self, filepath: str) -> None:
         super().__init__()
 
-        # An InferenceSession is the ONNX Runtime object that holds a loaded
-        # model. It runs on the CPU here, so the answer does not depend on
-        # the graphics card.
-        self.session: InferenceSession = InferenceSession(
-            filepath, providers=["CPUExecutionProvider"])
+        # An InferenceSession is the ONNX Runtime object that holds a loaded model.
+        # It runs on the CPU here, so the answer does not depend on the graphics card.
+        self.session: InferenceSession = InferenceSession(filepath, providers=["CPUExecutionProvider"])
+
+    @staticmethod
+    def from_file(filepath: str) -> 'OnnxNeuralNetwork':
+        """Reload a trained model from a .onnx file. This mirrors NeuralNetwork.from_file."""
+        return OnnxNeuralNetwork(filepath)
 
     def forward(self, x: Tensor) -> Tensor:
-        # ONNX Runtime takes numpy arrays, not tensors. The model wants
-        # [batch, channel, height, width], so reshape one image or a whole
-        # batch into that form.
+        # ONNX Runtime takes numpy arrays, not tensors. The model wants [batch, channel, height, width],
+        # so reshape one image or a whole batch into that form.
         images: ndarray = x.detach().cpu().reshape(-1, 1, 28, 28).numpy()
         logits: ndarray = self.session.run(None, {"image": images})[0]
         return torch.from_numpy(logits).to(x.device)
 
 
-def compare_model_predictions(
-        first: NeuralNetwork,
-        second: NeuralNetwork,
-        test_data: FashionMNIST) -> None:
+def compare_model_predictions(model1: NeuralNetwork, model2: NeuralNetwork, test_data: FashionMNIST) -> None:
     """Check that two models pick the same class for every test image."""
 
-    first.eval()
-    second.eval()
+    model1.eval()
+    model2.eval()
 
-    # The ONNX export marked dimension 0 as dynamic, so one call takes all
-    # 10000 images.
+    # The ONNX export marked dimension 0 as dynamic, so one call takes all 10000 images.
     count: int = len(test_data)
     images: Tensor = torch.stack([test_data[i][0] for i in range(count)])
 
     with torch.no_grad():
-        first_logits: ndarray = first(images.to(first.device)).cpu().numpy()
-        second_logits: ndarray = second(images.to(second.device)).cpu().numpy()
+        logits1: ndarray = model1(images.to(model1.device)).cpu().numpy()
+        logits2: ndarray = model2(images.to(model2.device)).cpu().numpy()
 
-    matches: int = int((first_logits.argmax(axis=1) == second_logits.argmax(axis=1)).sum())
+    matches: int = int((logits1.argmax(axis=1) == logits2.argmax(axis=1)).sum())
 
     # The two runtimes add the numbers in a different order, so the raw
     # scores differ by a tiny amount. The chosen class must still match.
-    largest_gap: float = float(np.abs(first_logits - second_logits).max())
+    largest_gap: float = float(np.abs(logits1 - logits2).max())
 
     print(f"Predictions that match: {matches} of {count}")
     print(f"Largest difference in the raw scores: {largest_gap:.3e}")
@@ -243,8 +233,8 @@ def compare_model_predictions(
 def main() -> None:
 
     transform: v2.Transform = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True)])
-    training_data: FashionMNIST = datasets.FashionMNIST(root="data", train=True, download=True, transform=transform)
-    test_data: FashionMNIST = datasets.FashionMNIST(root="data", train=False, download=True, transform=transform)
+    training_data: FashionMNIST = FashionMNIST(root="data", train=True, download=True, transform=transform)
+    test_data: FashionMNIST = FashionMNIST(root="data", train=False, download=True, transform=transform)
 
     model: NeuralNetwork = NeuralNetwork()
     model.print_model()
@@ -252,17 +242,16 @@ def main() -> None:
 
     PT_FILEPATH: str = "model.pt"
     torch.save(model.state_dict(), PT_FILEPATH)
-
-    ONNX_FILEPATH: str = "model.onnx"
-    model.export_onnx(ONNX_FILEPATH)
-
     reloaded_pt_model: NeuralNetwork = NeuralNetwork.from_file(PT_FILEPATH)
     pt_prediction: str = reloaded_pt_model.predict(test_data)
 
-    reloaded_onnx_model: NeuralNetwork = NeuralNetwork.from_file(ONNX_FILEPATH, onnx=True)
+    ONNX_FILEPATH: str = "model.onnx"
+    model.export_onnx(ONNX_FILEPATH)
+    reloaded_onnx_model: OnnxNeuralNetwork = OnnxNeuralNetwork.from_file(ONNX_FILEPATH)
     onnx_prediction: str = reloaded_onnx_model.predict(test_data)
 
     print(f'The .pt file says "{pt_prediction}". The .onnx file says "{onnx_prediction}".')
+    print("\nComparing predictions for the full dataset...")
     compare_model_predictions(reloaded_pt_model, reloaded_onnx_model, test_data)
 
 
